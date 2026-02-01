@@ -2,78 +2,50 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 
-// 注意: GitHub Actions上で動くとき、このキーは「Secrets」から自動で読み込まれます。
-// コードに直接APIキーを書かないでください（セキュリティのため）。
-final String apiKey = Platform.environment['GOOGLE_API_KEY'] ?? '';
-
-// URLエンコード済みのカレンダーID (# -> %23)
-const String calendarId = 'ja.japanese%23holiday@group.v.calendar.google.com';
+// ★Holidays JP API (内閣府のデータを元にした、日本の祝日専用API)
+// メンテナンスフリーで、法律上の祝日だけを取得できます。
+const String apiUrl = 'https://holidays-jp.github.io/api/v1/date.json';
 
 void main() async {
-  // 1. APIキーのチェック
-  if (apiKey.isEmpty) {
-    print('【エラー】APIキーが設定されていません。');
-    print('GitHubのSettings > Secrets and variables > Actions に "GOOGLE_API_KEY" を追加してください。');
-    // ローカルでテストする場合は、以下のように一時的に書き換えても良いですが、コミットしないでください。
-    // apiKey = 'AIzaSy...'; 
-    exit(1);
-  }
-
-  // 2. 取得範囲の設定 (去年〜再来年まで)
-  final now = DateTime.now();
-  final start = DateTime(now.year - 1, 1, 1);
-  final end = DateTime(now.year + 2, 12, 31);
-
-  final String timeMin = start.toUtc().toIso8601String();
-  final String timeMax = end.toUtc().toIso8601String();
-
-  final Uri url = Uri.parse(
-      'https://www.googleapis.com/calendar/v3/calendars/$calendarId/events'
-      '?key=$apiKey'
-      '&timeMin=$timeMin'
-      '&timeMax=$timeMax'
-      '&singleEvents=true'
-      '&orderBy=startTime');
-
-  print('Google Calendar APIからデータを取得中...');
-  print('Target URL: $url'); // デバッグ用（キー以外を表示）
+  print('日本の公式サイト(Holidays JP)からデータを取得中...');
 
   try {
-    final response = await http.get(url);
+    final response = await http.get(Uri.parse(apiUrl));
 
     if (response.statusCode != 200) {
       print('【APIエラー】ステータスコード: ${response.statusCode}');
-      print('内容: ${response.body}');
       exit(1);
     }
 
-    final data = json.decode(response.body);
-    final List<dynamic> items = data['items'];
+    // データは {"2025-01-01": "元日", "2025-01-13": "成人の日"...} の形式で返ってきます
+    final Map<String, dynamic> rawData = json.decode(utf8.decode(response.bodyBytes));
+    
+    // 必要な期間（去年〜再来年）だけに絞り込む
+    final now = DateTime.now();
+    final startYear = now.year - 1;
+    final endYear = now.year + 2;
 
-    // 3. アプリで使いやすい形に整形 {"2025-01-01": "元日", ...}
-    Map<String, String> simpleHolidays = {};
+    Map<String, String> finalHolidays = {};
 
-    for (var item in items) {
-      // 終日イベントの場合、dateフィールドに "yyyy-MM-dd" が入る
-      final date = item['start']['date'];
-      final title = item['summary'];
+    rawData.forEach((dateStr, title) {
+      // dateStrは "YYYY-MM-DD" 形式
+      final year = int.parse(dateStr.split('-')[0]);
 
-      if (date != null && title != null) {
-        simpleHolidays[date] = title.toString();
+      if (year >= startYear && year <= endYear) {
+        finalHolidays[dateStr] = title.toString();
       }
-    }
+    });
 
-    // 4. ファイルに書き出し (holidays.json)
-    // 整形して読みやすくする (JsonEncoder.withIndent)
-    final jsonString = const JsonEncoder.withIndent('  ').convert(simpleHolidays);
+    // JSON書き出し
+    final jsonString = const JsonEncoder.withIndent('  ').convert(finalHolidays);
     final outputFile = File('holidays.json');
     
     await outputFile.writeAsString(jsonString);
 
     print('------------------------------------------------');
-    print('✅ 成功しました！');
-    print('ファイル名: holidays.json');
-    print('取得件数: ${simpleHolidays.length}件');
+    print('✅ 成功しました！(内閣府データ準拠)');
+    print('取得件数: ${finalHolidays.length}件');
+    print('APIキー不要・リスト管理不要で完全自動化されました。');
     print('------------------------------------------------');
 
   } catch (e) {
