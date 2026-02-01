@@ -1,0 +1,9 @@
+# pubspec.yaml
+name: holiday_updater
+description: A tool to update holidays json.
+publish_to: 'none'
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  http: ^1.1.0

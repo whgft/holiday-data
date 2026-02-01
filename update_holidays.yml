@@ -1,0 +1,40 @@
+name: Update Holidays JSON
+
+on:
+  schedule:
+    # 毎月1日の 日本時間 朝9:00 (UTC 0:00) に実行
+    - cron: '0 0 1 * *'
+  workflow_dispatch: # 手動実行ボタンも有効にする
+
+permissions:
+  contents: write # ファイルを書き換える権限
+
+jobs:
+  update-json:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # ★修正点1: DartではなくFlutter環境を用意する
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      # ★修正点2: dart pub get ではなく flutter pub get を使う
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Run generation script
+        env:
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: dart test/generate_holidays.dart
+
+      - name: Commit and Push if changed
+        run: |
+          git config --global user.name 'Holiday Updater Bot'
+          git config --global user.email 'action@github.com'
+          git add holidays.json
+          # 変更がある場合のみコミット＆プッシュ
+          git diff --quiet && git diff --staged --quiet || (git commit -m "📅 Update holiday data" && git push)
